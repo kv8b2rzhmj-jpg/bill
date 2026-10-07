@@ -301,6 +301,11 @@ canvas{width:100%;display:block}
     <button class="save" data-act="saveEntry" id="entrySave">保存</button>
   </div>
   <div class="entryAmount"><span>¥</span><b id="entryAmount">0</b></div>
+  <div style="padding:6px 14px;background:var(--card);border-bottom:1px solid var(--line);text-align:center">
+    <button data-act="openMultiManual" style="border:0;background:none;color:var(--blue);font-size:13px;padding:2px">
+      📋 多条目批量录入
+    </button>
+  </div>
   <div class="entryBody" id="entryBody"></div>
   <div id="keypad"></div>
 </div>
@@ -857,20 +862,19 @@ function renderSetting(){
     '<div class="card">' +
       '<div class="cardTitle">图片识别说明</div>' +
       '<div class="tip">' +
-        '① 记账面板点 📷 可拍照或选相册里的账单截图。<br>' +
-        '② 首次识别需联网下载识别模型（约 10–15MB），之后会缓存，可离线使用。<br>' +
-        '③ 识别到多条商品时会弹出勾选面板，可改名、改金额、批量导入。<br>' +
-        '④ 识别不一定 100% 准确，金额以人工确认为准。' +
+        '① 记账面板点 📷 拍照或选相册账单。<br>' +
+        '② 识别到多条商品时自动弹出勾选面板，可改名、改金额、批量导入。<br>' +
+        '③ 识别不准时，记账面板里的「📋 多条目批量录入」可手动逐条添加。<br>' +
+        '④ 首次识别需联网下载中文模型（约 15MB），之后可离线使用。' +
       '</div>' +
     '</div>' +
 
     '<div class="card">' +
       '<div class="cardTitle">重要提示</div>' +
       '<div class="tip">' +
-        '① 所有数据只保存在这台手机的浏览器里，不上传任何服务器。<br>' +
-        '② 清理 Safari 数据、删除主屏幕图标、换手机都可能导致数据丢失，请定期「导出完整备份」。<br>' +
-        '③ 密码锁只是防别人随手翻看，不是加密。<br>' +
-        '④ 换手机：旧机导出备份 → 新机导入即可。' +
+        '① 数据只保存在本机浏览器，不上传服务器。<br>' +
+        '② 清理 Safari 数据、删主屏幕图标、换手机会丢数据，请定期导出备份。<br>' +
+        '③ 密码锁只是防随手翻看，不是加密。' +
       '</div>' +
     '</div>';
 
@@ -1018,10 +1022,10 @@ async function startOCR(file){
   try{
     worker = await T.createWorker('chi_sim+eng', 1, {
       logger: m => {
-        if(!m) return;
+        if(!m         ) return;
         if(m.status === 'recognizing text'){
-          $('#ocrText').textContent = '正在识别文字…';
-          $('#ocrProgress').textContent = Math.round((m.progress || 0) * 100) + '%';
+          $('#ocrText'). $('#textContent = '正在识别文字…';
+ocrProgress').textContent = Math.round((m.progress || 0) * 100) + '%';
         }else if(m.status){
           const map = {
             'loading tesseract core':      '加载识别核心…',
@@ -1040,19 +1044,21 @@ async function startOCR(file){
 
     hideOcrOverlay();
 
-    /* 1) 先尝试多条目解析 */
-    const multiItems = parseMultiItems(text || '');
+    /* 保存原始识别文本，供“多条目”按钮使用 */
+    window.__lastOcrText  = text || '';
+    window.__lastOcrItems = parseMultiItems(text || '');
 
-    if(multiItems.length >= 2){
-      toast('识别到 ' + multiItems.length + ' 条，请核对');
-      openMultiPanel(multiItems, parseBillText(text || ''));
+    /* 识别到 2 条以上自动弹多条目面板 */
+    if(window.__lastOcrItems.length >= 2){
+      toast('识别到 ' + window.__lastOcrItems.length + ' 条，请核对');
+      openMultiPanel(window.__lastOcrItems.slice(), parseBillText(text || ''));
       return;
     }
 
-    /* 2) 只有 0~1 条，走单条流程 */
+    /* 否则走单条流程 */
     const parsed = parseBillText(text || '');
     if(!parsed.amount){
-      toast('未识别出金额，已打开记账页请手动填写');
+      toast('未识别出金额，可点“多条目批量录入”手动添加');
     }else{
       toast('识别完成，请核对后保存');
     }
@@ -1067,7 +1073,7 @@ async function startOCR(file){
   }
 }
 
-/* 单条账单解析：取总额 / 日期 / 备注 */
+/* 单条账单解析 */
 function parseBillText(text){
   const result = { amount: 0, date: todayStr(), note: '' };
 
@@ -1131,66 +1137,41 @@ function parseBillText(text){
   return result;
 }
 
-/* 多条目解析 */
+/* 多条目解析（宽松版） */
 function parseMultiItems(text){
   const lines = text.split(/\n/)
     .map(s => s.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
 
   const items = [];
-  const consumed = new Set();
+  const skip = /^(小计|合计|总计|实付|实收|应付|应收|优惠|折扣|税额|税费|找零|支付|订单|时间|日期|单号|电话|地址|欢迎|谢谢|收银|服务员|会员|积分|单据|流水|门店|备注|商家|金额|单价|数量|规格|原价|现价|打包|配送|餐盒|小费|TOTAL|SUBTOTAL|CASH|CHANGE|PAYMENT|DISCOUNT|TAX|WELCOME|THANK)/i;
 
-  const skip = /^(小计|合计|总计|实付|实收|应付|应收|优惠|折扣|税额|税费|找零|支付方式|订单|时间|日期|单号|电话|地址|欢迎|谢谢|收银|服务员|会员|积分|单据|流水|门店|备注|商家|金额|单价|数量|规格|原价|现价|打包|配送|餐盒|小费)/;
+  const lineRe = /^(.*?)[\s¥￥$]*(\d+(?:[.,]\d{1,2})?)\s*(?:元|块)?\s*$/;
 
   for(let i = 0; i < lines.length; i++){
     const line = lines[i];
+    if(line.length < 3 || line.length > 80) continue;
     if(skip.test(line)) continue;
-    if(line.length < 2 || line.length > 60) continue;
+    if(/^\d{4}[-\/.]\d{1,2}[-\/.]\d{1,2}/.test(line)) continue;
+    if(/^\d{1,2}:\d{2}/.test(line)) continue;
+    if(/^[\d\s.,]+$/.test(line)) continue;
 
-    const m = line.match(/^(.+?)\s*[¥￥]?\s*(\d+(?:[.,]\d{1,2})?)\s*[元]?\s*$/);
+    const m = line.match(lineRe);
     if(!m) continue;
 
-    let name = m[1]
+    let name = m[1].trim()
       .replace(/^\d{1,3}[.、:：)）]?\s+/, '')
-      .replace(/[¥￥:：*·]+/g, '')
+      .replace(/[¥￥$:：*·\-]+/g, '')
+      .replace(/\s+/g, ' ')
       .trim();
 
     const amt = parseFloat(m[2].replace(',', '.'));
 
-    if(!name || name.length < 1) continue;
-    if(!(amt > 0) || amt >= 100000) continue;
-    if(/^[\d\s.]+$/.test(name)) continue;
+    if(!name || name.length < 2) continue;
+    if(!/[a-zA-Z\u4e00-\u9fa5]/.test(name)) continue;
+    if(!(amt > 0.01) || amt >= 100000) continue;
 
     items.push({ name: name.slice(0, 20), amount: amt, checked: true });
-    consumed.add(i);
-  }
-
-  for(let i = 1; i < lines.length; i++){
-    if(consumed.has(i)) continue;
-    const line = lines[i];
-    if(skip.test(line)) continue;
-
-    const m = line.match(/^[¥￥]?\s*(\d+(?:[.,]\d{1,2})?)\s*[元]?$/);
-    if(!m) continue;
-
-    const prev = lines[i - 1];
-    if(consumed.has(i - 1)) continue;
-    if(!prev || skip.test(prev)) continue;
-    if(prev.length < 2 || prev.length > 30) continue;
-    if(/^[¥￥]?\s*\d+(?:[.,]\d{1,2})?\s*[元]?$/.test(prev)) continue;
-
-    const amt = parseFloat(m[1].replace(',', '.'));
-    if(!(amt > 0) || amt >= 100000) continue;
-
-    let name = prev
-      .replace(/^\d{1,3}[.、:：)）]?\s+/, '')
-      .replace(/[¥￥:：*·]+/g, '')
-      .trim();
-    if(!name) continue;
-
-    items.push({ name: name.slice(0, 20), amount: amt, checked: true });
-    consumed.add(i);
-    consumed.add(i - 1);
   }
 
   return items;
@@ -1202,7 +1183,7 @@ function parseMultiItems(text){
 let multiState = { items: [], date: '', accountId: '', category: '' };
 
 function openMultiPanel(items, base){
-  multiState.items = items;
+  multiState.items = items.length ? items : [{ name:'', amount:0, checked:true }];
   multiState.date = (base && base.date) || todayStr();
   multiState.accountId = state.accounts[0].id;
   multiState.category = '餐饮';
@@ -1210,6 +1191,14 @@ function openMultiPanel(items, base){
   renderMultiPanel();
   $('#multiSheet').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
+}
+
+function openMultiManual(){
+  let items = (window.__lastOcrItems || []).slice();
+  if(items.length === 0){
+    items = [{ name: '', amount: 0, checked: true }];
+  }
+  openMultiPanel(items, parseBillText(window.__lastOcrText || ''));
 }
 
 function closeMultiPanel(){
@@ -1221,10 +1210,15 @@ function renderMultiPanel(){
   $('#multiList').innerHTML = multiState.items.map((it, i) =>
     '<div class="multiItem">' +
       '<input type="checkbox" data-mi-check="' + i + '"' + (it.checked ? ' checked' : '') + '>' +
-      '<input type="text"   data-mi-name="'  + i + '" maxlength="20" value="' + esc(it.name) + '">' +
-      '<input type="number" data-mi-amount="' + i + '" step="0.01" min="0" value="' + it.amount + '">' +
+      '<input type="text"   data-mi-name="'  + i + '" maxlength="20" placeholder="商品名" value="' + esc(it.name) + '">' +
+      '<input type="number" data-mi-amount="' + i + '" step="0.01" min="0" placeholder="0" value="' + (it.amount || '') + '">' +
     '</div>'
   ).join('');
+
+  $('#multiList').insertAdjacentHTML('afterend',
+    '<div id="multiAddWrap" style="padding:12px 0"><button data-act="addMultiRow" ' +
+    'style="width:100%;padding:10px;border:1px dashed #c7c7cc;border-radius:10px;' +
+    'background:none;color:var(--blue);font-size:14px">+ 添加一行</button></div>');
 
   $('#multiDate').value = multiState.date;
 
@@ -1259,7 +1253,7 @@ function importMulti(){
       amount: Math.round(it.amount * 100) / 100,
       category: multiState.category,
       accountId: multiState.accountId,
-      note: it.name
+      note: (it.name || '').trim()
     });
   });
 
@@ -1858,8 +1852,9 @@ document.addEventListener('click', e => {
     case 'importJson': importJSON(); break;
     case 'importCsv':  importCSV(); break;
 
-    case 'closeMulti':  closeMultiPanel(); break;
-    case 'importMulti': importMulti(); break;
+    case 'openMultiManual': openMultiManual(); break;
+    case 'closeMulti':      closeMultiPanel(); break;
+    case 'importMulti':     importMulti(); break;
 
     case 'multiAll':
       multiState.items.forEach(x => x.checked = true);
@@ -1877,6 +1872,11 @@ document.addEventListener('click', e => {
 
     case 'multiCat':
       multiState.category = val;
+      renderMultiPanel();
+      break;
+
+    case 'addMultiRow':
+      multiState.items.push({ name:'', amount:0, checked:true });
       renderMultiPanel();
       break;
 
