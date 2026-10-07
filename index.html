@@ -1918,3 +1918,118 @@ document.addEventListener('input', function(e){
   var el = e.target;
   if(!el || !el.dataset) return;
   if(el.dataset.miName !== undefined){
+    var i = Number(el.dataset.miName);
+    if(multiState.items[i]) multiState.items[i].name = el.value;
+  }else if(el.dataset.miAmount !== undefined){
+    var j = Number(el.dataset.miAmount);
+    if(multiState.items[j]) multiState.items[j].amount = parseFloat(el.value) || 0;
+  }
+});
+
+/* 全局 change 委托：multi 勾选 / 日期 / OCR 文件 */
+document.addEventListener('change', function(e){
+  var el = e.target;
+  if(!el) return;
+
+  if(el.dataset && el.dataset.miCheck !== undefined){
+    var i = Number(el.dataset.miCheck);
+    if(multiState.items[i]){
+      multiState.items[i].checked = el.checked;
+      updateMultiCount();
+    }
+    return;
+  }
+
+  if(el.id === 'multiDate'){
+    multiState.date = el.value;
+    return;
+  }
+
+  if(el.id === 'ocrFile'){
+    var f = el.files && el.files[0];
+    el.value = '';
+    if(!f) return;
+    if(f.size === 0){ toast('图片为空，请重新选择'); return; }
+    if(f.size > 40 * 1024 * 1024){ toast('图片过大，请换一张'); return; }
+    startOCR(f);
+    return;
+  }
+});
+
+function switchTab(name){
+  $$('#tabbar button').forEach(function(b){
+    b.classList.toggle('on', b.dataset.val === name);
+  });
+  $$('.page').forEach(function(p){
+    p.classList.toggle('active', p.id === 'page-' + name);
+  });
+  renderCurrent();
+  window.scrollTo(0, 0);
+}
+
+function renderCurrent(){
+  var active = document.querySelector('.page.active');
+  if(!active) return;
+  switch(active.id){
+    case 'page-home':    renderHome(); break;
+    case 'page-chart':   renderChart(); break;
+    case 'page-account': renderAccount(); break;
+    case 'page-setting': renderSetting(); break;
+  }
+}
+
+function renderAll(){
+  renderHome();
+  renderAccount();
+  renderSetting();
+  if(document.querySelector('.page.active') &&
+     document.querySelector('.page.active').id === 'page-chart'){
+    renderChart();
+  }
+}
+
+/* =========================================================
+   启动
+   ========================================================= */
+(function init(){
+  try{
+    if(!localStorage.getItem(KEY)){
+      state = defaultState();
+      save();
+    }
+
+    renderAll();
+
+    if(state.settings.lock && state.settings.pin){
+      var ls = $('#lockScreen');
+      if(ls) ls.classList.remove('hidden');
+      lockInput = '';
+      updateDots();
+      renderLock();
+    }
+
+    document.addEventListener('gesturestart', function(e){ e.preventDefault(); });
+
+    document.addEventListener('visibilitychange', function(){
+      if(document.hidden) return;
+      var t = todayStr().slice(0,7);
+      if(t !== curMonth){ curMonth = t; renderCurrent(); }
+      else{
+        var active = document.querySelector('.page.active');
+        if(active && active.id === 'page-home') renderHome();
+      }
+    });
+  }catch(err){
+    console.error('init error:', err);
+    var main = document.getElementById('main');
+    if(main){
+      main.innerHTML = '<div style="padding:24px 18px;color:#ff3b30;font-size:13px;' +
+        'white-space:pre-wrap;line-height:1.6;font-family:-apple-system,sans-serif">' +
+        '⚠️ 启动错误\n\n' + (err && err.message ? err.message : String(err)) +
+        (err && err.stack ? '\n\n' + err.stack : '') + '</div>';
+    }
+  }
+})();
+</script>
+</body>
+</html>
