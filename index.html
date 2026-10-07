@@ -79,7 +79,6 @@ button{font-family:inherit;cursor:pointer}
 .bar i.over{background:linear-gradient(90deg,#ff3b30,#ff453a)}
 .budgetText{display:flex;justify-content:space-between;font-size:12px;color:var(--sub);margin-top:6px}
 
-/* ===== 日期分组 ===== */
 .dayGroup{background:#fff;border-radius:12px;margin-bottom:10px;overflow:hidden;
   box-shadow:0 1px 2px rgba(0,0,0,.04)}
 .dayHeader{display:flex;align-items:center;padding:12px 14px;cursor:pointer}
@@ -233,7 +232,6 @@ canvas{width:100%;display:block}
 }
 .toast.show{opacity:1;transform:translate(-50%,0)}
 
-/* ===== OCR 遮罩 ===== */
 #ocrOverlay{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.55);
   display:flex;align-items:center;justify-content:center;padding:0 30px}
 .ocrBox{background:#fff;border-radius:16px;padding:26px 28px;text-align:center;min-width:220px}
@@ -242,8 +240,28 @@ canvas{width:100%;display:block}
 @keyframes spin{to{transform:rotate(360deg)}}
 .ocrText{font-size:15px;color:var(--text);margin-bottom:6px;font-weight:500}
 .ocrProgress{font-size:12px;color:var(--sub);margin-bottom:16px;min-height:16px}
-.ocrBox button{border:0;background:#f2f2f7;border-radius:10px;padding:10px 24px;
-  font-size:15px;color:var(--blue)}
+
+#multiSheet{
+  position:fixed;inset:0;z-index:110;background:var(--bg);
+  display:flex;flex-direction:column;
+  padding-bottom:env(safe-area-inset-bottom);
+}
+.multiItem{
+  display:flex;align-items:center;gap:8px;padding:10px 0;
+  border-bottom:1px solid var(--line);
+}
+.multiItem input[type=checkbox]{
+  width:20px;height:20px;flex-shrink:0;accent-color:var(--blue);
+}
+.multiItem input[type=text]{
+  flex:1;min-width:0;border:0;background:#f2f2f7;border-radius:8px;
+  padding:9px 10px;font-size:14px;color:var(--text);
+}
+.multiItem input[type=number]{
+  width:86px;flex-shrink:0;border:0;background:#f2f2f7;border-radius:8px;
+  padding:9px 10px;font-size:14px;color:var(--text);text-align:right;
+  font-variant-numeric:tabular-nums;
+}
 </style>
 </head>
 <body>
@@ -295,6 +313,37 @@ canvas{width:100%;display:block}
   </div>
 </div>
 
+<div id="multiSheet" class="hidden">
+  <div class="entryTop">
+    <button data-act="closeMulti">取消</button>
+    <div style="font-weight:600;font-size:15px">识别到多条记录</div>
+    <button class="save" data-act="importMulti">导入</button>
+  </div>
+  <div class="entryBody">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <span id="multiCount" style="font-size:13px;color:var(--sub)">共 0 条</span>
+      <span>
+        <button data-act="multiAll"  style="border:0;background:none;color:var(--blue);font-size:13px;padding:4px 8px">全选</button>
+        <button data-act="multiNone" style="border:0;background:none;color:var(--blue);font-size:13px;padding:4px 8px">全不选</button>
+      </span>
+    </div>
+    <div id="multiList"></div>
+    <div class="fieldRow" style="margin-top:14px">
+      <label>日期</label>
+      <input type="date" id="multiDate">
+    </div>
+    <div style="margin-top:14px">
+      <div class="secTitle">账户</div>
+      <div class="chips" id="multiAcc"></div>
+    </div>
+    <div style="margin-top:14px">
+      <div class="secTitle">分类</div>
+      <div class="chips" id="multiCat"></div>
+    </div>
+    <div style="height:14px"></div>
+  </div>
+</div>
+
 <input type="file" id="ocrFile" accept="image/*" style="display:none">
 
 <script>
@@ -313,7 +362,6 @@ const CAT_ICON = {
 };
 const ACC_ICON = ['💵','💳','🏦','📱','🪙','💎'];
 
-/* 折叠状态：date -> true(展开) / false(收起) */
 let expandedDates = {};
 let editingId = null;
 
@@ -389,7 +437,6 @@ function hash(s){
   for(let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
   return h.toString(16);
 }
-/* 三天内可编辑（今天 / 昨天 / 前天 / 大前天） */
 function canEditDate(dateStr){
   try{
     const t = new Date(todayStr() + 'T00:00:00');
@@ -456,7 +503,7 @@ function accName(id){
 }
 
 /* =========================================================
-   渲染：首页（按日期折叠）
+   渲染：首页
    ========================================================= */
 function renderHome(){
   const st = monthStats(curMonth);
@@ -479,7 +526,6 @@ function renderHome(){
       '</div>';
   }
 
-  /* ---- 按日期分组 ---- */
   const groups = {};
   st.list.forEach(r => {
     if(!groups[r.date]) groups[r.date] = [];
@@ -526,7 +572,6 @@ function renderDayGroup(date, recs, today){
   const dayTrans = recs.filter(r => r.type === 'transfer')
     .reduce((s, r) => s + Number(r.amount || 0), 0);
 
-  /* 默认：今天展开，其它收起；用户手动改过则用用户的选择 */
   const isExpanded = (expandedDates[date] !== undefined)
     ? expandedDates[date]
     : (date === today);
@@ -814,7 +859,7 @@ function renderSetting(){
       '<div class="tip">' +
         '① 记账面板点 📷 可拍照或选相册里的账单截图。<br>' +
         '② 首次识别需联网下载识别模型（约 10–15MB），之后会缓存，可离线使用。<br>' +
-        '③ 识别结果自动填入金额、日期和备注，请核对后再保存。<br>' +
+        '③ 识别到多条商品时会弹出勾选面板，可改名、改金额、批量导入。<br>' +
         '④ 识别不一定 100% 准确，金额以人工确认为准。' +
       '</div>' +
     '</div>' +
@@ -861,7 +906,7 @@ function renderSetting(){
 }
 
 /* =========================================================
-   OCR 图片识别
+   OCR：加载库 / 压缩图片 / 识别
    ========================================================= */
 function loadTesseract(){
   return new Promise((resolve, reject) => {
@@ -883,54 +928,149 @@ function hideOcrOverlay(){
   $('#ocrOverlay').classList.add('hidden');
 }
 
+function compressImage(file, maxDim, quality){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    const timer = setTimeout(() => {
+      URL.revokeObjectURL(url);
+      reject(new Error('读取图片超时，请重新选择'));
+    }, 20000);
+
+    img.onload = () => {
+      clearTimeout(timer);
+      try{
+        let w = img.naturalWidth || img.width;
+        let h = img.naturalHeight || img.height;
+        if(!w || !h) throw new Error('图片尺寸异常');
+
+        if(w > maxDim || h > maxDim){
+          const r = Math.min(maxDim / w, maxDim / h);
+          w = Math.round(w * r);
+          h = Math.round(h * r);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+
+        if(canvas.toBlob){
+          canvas.toBlob(b => {
+            if(b) resolve(b);
+            else reject(new Error('图片转换失败'));
+          }, 'image/jpeg', quality);
+        }else{
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+          const bin = atob(dataUrl.split(',')[1]);
+          const arr = new Uint8Array(bin.length);
+          for(let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+          resolve(new Blob([arr], { type: 'image/jpeg' }));
+        }
+      }catch(e){
+        URL.revokeObjectURL(url);
+        reject(e);
+      }
+    };
+
+    img.onerror = () => {
+      clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      reject(new Error('无法读取这张图片，请换一张'));
+    };
+
+    img.src = url;
+  });
+}
+
 async function startOCR(file){
   showOcrOverlay();
-  try{
-    const T = await loadTesseract();
-    $('#ocrProgress').textContent = '正在加载中文识别模型…';
 
-    const worker = await T.createWorker('chi_sim+eng', 1, {
+  let imgBlob;
+  try{
+    $('#ocrText').textContent = '正在处理图片…';
+    $('#ocrProgress').textContent = '压缩并转换格式';
+    imgBlob = await compressImage(file, 1400, 0.85);
+  }catch(e){
+    hideOcrOverlay();
+    toast('图片处理失败：' + (e.message || '未知错误'));
+    return;
+  }
+
+  let T;
+  try{
+    $('#ocrText').textContent = '正在加载识别引擎…';
+    $('#ocrProgress').textContent = '首次使用需下载，请保持联网';
+    T = await loadTesseract();
+  }catch(e){
+    hideOcrOverlay();
+    toast('识别组件加载失败，请检查网络后重试');
+    console.error(e);
+    openEntry();
+    return;
+  }
+
+  let worker = null;
+  try{
+    worker = await T.createWorker('chi_sim+eng', 1, {
       logger: m => {
+        if(!m) return;
         if(m.status === 'recognizing text'){
           $('#ocrText').textContent = '正在识别文字…';
           $('#ocrProgress').textContent = Math.round((m.progress || 0) * 100) + '%';
         }else if(m.status){
           const map = {
-            'loading tesseract core': '加载识别核心…',
-            'initializing tesseract': '初始化…',
-            'loading language traineddata': '加载语言包…',
-            'initializing api': '准备识别…'
+            'loading tesseract core':      '加载识别核心…',
+            'initializing tesseract':      '初始化引擎…',
+            'loading language traineddata':'加载中文模型（首次约 30 秒）…',
+            'initializing api':            '准备识别…'
           };
           $('#ocrProgress').textContent = map[m.status] || m.status;
         }
       }
     });
 
-    const { data: { text } } = await worker.recognize(file);
+    const { data: { text } } = await worker.recognize(imgBlob);
     await worker.terminate();
+    worker = null;
 
     hideOcrOverlay();
 
-    const parsed = parseBillText(text || '');
+    /* 1) 先尝试多条目解析 */
+    const multiItems = parseMultiItems(text || '');
 
-    if(!parsed.amount){
-      toast('未识别出金额，请手动输入');
+    if(multiItems.length >= 2){
+      toast('识别到 ' + multiItems.length + ' 条，请核对');
+      openMultiPanel(multiItems, parseBillText(text || ''));
+      return;
     }
 
+    /* 2) 只有 0~1 条，走单条流程 */
+    const parsed = parseBillText(text || '');
+    if(!parsed.amount){
+      toast('未识别出金额，已打开记账页请手动填写');
+    }else{
+      toast('识别完成，请核对后保存');
+    }
     openEntry(parsed);
 
   }catch(e){
+    if(worker){ try{ await worker.terminate(); }catch(_){} }
     hideOcrOverlay();
-    toast('识别失败：' + (e.message || '未知错误'));
+    console.error('OCR error:', e);
+    toast('识别失败：' + (e.message || '请重试'));
     openEntry();
   }
 }
 
-/* 从 OCR 文本中提取金额 / 日期 / 备注 */
+/* 单条账单解析：取总额 / 日期 / 备注 */
 function parseBillText(text){
   const result = { amount: 0, date: todayStr(), note: '' };
 
-  /* ---- 日期 ---- */
   const patterns = [
     /(\d{4})[-\/年.](\d{1,2})[-\/月.](\d{1,2})/,
     /(\d{4})(\d{2})(\d{2})/
@@ -950,18 +1090,15 @@ function parseBillText(text){
     }
   }
 
-  /* ---- 金额：优先级从高到低 ---- */
   const amounts = [];
   let m;
 
-  // 1. ¥ / ￥ 开头的
   const re1 = /[¥￥]\s*([\d,]+(?:\.\d{1,2})?)/g;
   while((m = re1.exec(text)) !== null){
     const v = parseFloat(m[1].replace(/,/g, ''));
     if(v > 0 && v < 1e7) amounts.push(v);
   }
 
-  // 2. 关键字后面的
   if(amounts.length === 0){
     const kwRe = /(?:实付|实收|合计|总计|总额|金额|支付|付款|消费|订单)[：:\s]*[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/g;
     while((m = kwRe.exec(text)) !== null){
@@ -970,7 +1107,6 @@ function parseBillText(text){
     }
   }
 
-  // 3. 退而求其次：带小数的数字
   if(amounts.length === 0){
     const re2 = /(\d{1,3}(?:,\d{3})+\.\d{1,2}|\d+\.\d{1,2})/g;
     while((m = re2.exec(text)) !== null){
@@ -980,11 +1116,9 @@ function parseBillText(text){
   }
 
   if(amounts.length > 0){
-    // 账单金额通常是最大值，但限制在前 8 个候选中避免误取
     result.amount = Math.round(Math.max.apply(null, amounts.slice(0, 8)) * 100) / 100;
   }
 
-  /* ---- 备注：取最长的非纯数字行 ---- */
   const lines = text.split(/\n/)
     .map(s => s.replace(/\s+/g, ' ').trim())
     .filter(s => s.length >= 2 && s.length <= 30 && !/^[\d\s.,:：¥￥-]+$/.test(s));
@@ -997,8 +1131,166 @@ function parseBillText(text){
   return result;
 }
 
+/* 多条目解析 */
+function parseMultiItems(text){
+  const lines = text.split(/\n/)
+    .map(s => s.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  const items = [];
+  const consumed = new Set();
+
+  const skip = /^(小计|合计|总计|实付|实收|应付|应收|优惠|折扣|税额|税费|找零|支付方式|订单|时间|日期|单号|电话|地址|欢迎|谢谢|收银|服务员|会员|积分|单据|流水|门店|备注|商家|金额|单价|数量|规格|原价|现价|打包|配送|餐盒|小费)/;
+
+  for(let i = 0; i < lines.length; i++){
+    const line = lines[i];
+    if(skip.test(line)) continue;
+    if(line.length < 2 || line.length > 60) continue;
+
+    const m = line.match(/^(.+?)\s*[¥￥]?\s*(\d+(?:[.,]\d{1,2})?)\s*[元]?\s*$/);
+    if(!m) continue;
+
+    let name = m[1]
+      .replace(/^\d{1,3}[.、:：)）]?\s+/, '')
+      .replace(/[¥￥:：*·]+/g, '')
+      .trim();
+
+    const amt = parseFloat(m[2].replace(',', '.'));
+
+    if(!name || name.length < 1) continue;
+    if(!(amt > 0) || amt >= 100000) continue;
+    if(/^[\d\s.]+$/.test(name)) continue;
+
+    items.push({ name: name.slice(0, 20), amount: amt, checked: true });
+    consumed.add(i);
+  }
+
+  for(let i = 1; i < lines.length; i++){
+    if(consumed.has(i)) continue;
+    const line = lines[i];
+    if(skip.test(line)) continue;
+
+    const m = line.match(/^[¥￥]?\s*(\d+(?:[.,]\d{1,2})?)\s*[元]?$/);
+    if(!m) continue;
+
+    const prev = lines[i - 1];
+    if(consumed.has(i - 1)) continue;
+    if(!prev || skip.test(prev)) continue;
+    if(prev.length < 2 || prev.length > 30) continue;
+    if(/^[¥￥]?\s*\d+(?:[.,]\d{1,2})?\s*[元]?$/.test(prev)) continue;
+
+    const amt = parseFloat(m[1].replace(',', '.'));
+    if(!(amt > 0) || amt >= 100000) continue;
+
+    let name = prev
+      .replace(/^\d{1,3}[.、:：)）]?\s+/, '')
+      .replace(/[¥￥:：*·]+/g, '')
+      .trim();
+    if(!name) continue;
+
+    items.push({ name: name.slice(0, 20), amount: amt, checked: true });
+    consumed.add(i);
+    consumed.add(i - 1);
+  }
+
+  return items;
+}
+
 /* =========================================================
-   记账面板（含编辑）
+   多条目预览面板
+   ========================================================= */
+let multiState = { items: [], date: '', accountId: '', category: '' };
+
+function openMultiPanel(items, base){
+  multiState.items = items;
+  multiState.date = (base && base.date) || todayStr();
+  multiState.accountId = state.accounts[0].id;
+  multiState.category = '餐饮';
+
+  renderMultiPanel();
+  $('#multiSheet').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeMultiPanel(){
+  $('#multiSheet').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+function renderMultiPanel(){
+  $('#multiList').innerHTML = multiState.items.map((it, i) =>
+    '<div class="multiItem">' +
+      '<input type="checkbox" data-mi-check="' + i + '"' + (it.checked ? ' checked' : '') + '>' +
+      '<input type="text"   data-mi-name="'  + i + '" maxlength="20" value="' + esc(it.name) + '">' +
+      '<input type="number" data-mi-amount="' + i + '" step="0.01" min="0" value="' + it.amount + '">' +
+    '</div>'
+  ).join('');
+
+  $('#multiDate').value = multiState.date;
+
+  $('#multiAcc').innerHTML = state.accounts.map(a =>
+    '<button data-act="multiAcc" data-val="' + a.id + '"' +
+    (a.id === multiState.accountId ? ' class="on"' : '') + '>' + esc(a.name) + '</button>'
+  ).join('');
+
+  $('#multiCat').innerHTML = CATS.expense.map(c =>
+    '<button data-act="multiCat" data-val="' + c + '"' +
+    (c === multiState.category ? ' class="on"' : '') + '>' + esc(c) + '</button>'
+  ).join('');
+
+  updateMultiCount();
+}
+
+function updateMultiCount(){
+  const total = multiState.items.length;
+  const checked = multiState.items.filter(x => x.checked).length;
+  $('#multiCount').textContent = '共 ' + total + ' 条，已选 ' + checked + ' 条';
+}
+
+function importMulti(){
+  const items = multiState.items.filter(x => x.checked && x.amount > 0);
+  if(items.length === 0){ toast('请至少选择一条有效记录'); return; }
+
+  items.forEach(it => {
+    state.records.push({
+      id: uid(),
+      date: multiState.date,
+      type: 'expense',
+      amount: Math.round(it.amount * 100) / 100,
+      category: multiState.category,
+      accountId: multiState.accountId,
+      note: it.name
+    });
+  });
+
+  expandedDates[multiState.date] = true;
+  save();
+  closeMultiPanel();
+  renderCurrent();
+  toast('已导入 ' + items.length + ' 条记录');
+}
+
+document.getElementById('multiList').addEventListener('input', e => {
+  const el = e.target;
+  if(el.dataset.miName !== undefined){
+    multiState.items[Number(el.dataset.miName)].name = el.value;
+  }else if(el.dataset.miAmount !== undefined){
+    multiState.items[Number(el.dataset.miAmount)].amount = parseFloat(el.value) || 0;
+  }
+});
+document.getElementById('multiList').addEventListener('change', e => {
+  const el = e.target;
+  if(el.dataset.miCheck !== undefined){
+    multiState.items[Number(el.dataset.miCheck)].checked = el.checked;
+    updateMultiCount();
+  }
+});
+document.getElementById('multiDate').addEventListener('change', e => {
+  multiState.date = e.target.value;
+});
+
+/* =========================================================
+   记账面板
    ========================================================= */
 const entryState = {
   type:'expense', amount:'0', category:'', accountId:'',
@@ -1182,7 +1474,6 @@ function saveEntry(){
     if(idx >= 0){
       state.records[idx] = Object.assign({}, state.records[idx], base);
     }
-    // 编辑后自动展开该日期
     expandedDates[base.date] = true;
     save();
     closeEntry();
@@ -1190,7 +1481,6 @@ function saveEntry(){
     toast('已修改 ' + fmt(amt));
   }else{
     state.records.push(Object.assign({ id: uid() }, base));
-    // 新增后自动展开该日期
     expandedDates[base.date] = true;
     save();
     closeEntry();
@@ -1517,7 +1807,6 @@ document.addEventListener('click', e => {
     case 'prevMonth':  shiftMonth(-1); break;
     case 'nextMonth':  shiftMonth(1); break;
 
-    /* 折叠展开 */
     case 'toggleDay': {
       const date = val;
       const cur = (expandedDates[date] !== undefined)
@@ -1528,7 +1817,6 @@ document.addEventListener('click', e => {
       break;
     }
 
-    /* 编辑记录 */
     case 'editRec': {
       const r = state.records.find(x => x.id === val);
       if(!r){ toast('记录不存在'); break; }
@@ -1570,6 +1858,28 @@ document.addEventListener('click', e => {
     case 'importJson': importJSON(); break;
     case 'importCsv':  importCSV(); break;
 
+    case 'closeMulti':  closeMultiPanel(); break;
+    case 'importMulti': importMulti(); break;
+
+    case 'multiAll':
+      multiState.items.forEach(x => x.checked = true);
+      renderMultiPanel();
+      break;
+    case 'multiNone':
+      multiState.items.forEach(x => x.checked = false);
+      renderMultiPanel();
+      break;
+
+    case 'multiAcc':
+      multiState.accountId = val;
+      renderMultiPanel();
+      break;
+
+    case 'multiCat':
+      multiState.category = val;
+      renderMultiPanel();
+      break;
+
     case 'changePin': {
       const p = prompt('请输入当前密码：');
       if(hash(p || '') !== state.settings.pin){ toast('密码错误'); break; }
@@ -1600,8 +1910,11 @@ document.addEventListener('click', e => {
 /* OCR 文件选择 */
 document.getElementById('ocrFile').addEventListener('change', e => {
   const f = e.target.files && e.target.files[0];
-  if(f) startOCR(f);
   e.target.value = '';
+  if(!f) return;
+  if(f.size === 0){ toast('图片为空，请重新选择'); return; }
+  if(f.size > 40 * 1024 * 1024){ toast('图片过大，请换一张'); return; }
+  startOCR(f);
 });
 
 function switchTab(name){
